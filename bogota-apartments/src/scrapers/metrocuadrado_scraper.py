@@ -23,6 +23,7 @@ class MetrocuadradoSpider(BaseSpider):
         """
         super().__init__(*args, **kwargs)
 
+        # TODO: Make it universal for any machine
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--headless=new')
