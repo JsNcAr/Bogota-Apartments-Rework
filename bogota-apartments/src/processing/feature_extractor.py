@@ -218,13 +218,11 @@ class FeatureExtractor:
         
         elif has_precio_venta:
             # Only venta exists
-            print("Extracting price per m2 from precio_venta")
             df['precio_por_m2'] = np.where(
                 (df['area'].notna()) & (df['area'] > 0),
                 df['precio_venta'] / df['area'],
                 np.nan
             )
-            print("✅ precio_por_m2 extracted from precio_venta")
             price_for_categories = df['precio_venta']
         
         elif has_precio_arriendo:
@@ -400,9 +398,100 @@ class FeatureExtractor:
 
     # ========== HELPER METHODS ==========
 
+    def _has_amenity(self, features, keywords: List[str]) -> bool:
+        """Check if property has specific amenity."""
+        # Fix: Don't use pd.isna on lists
+        if features is None or not features:
+            return False
+        
+        # Handle different input types
+        if isinstance(features, list):
+            if not features:  # Empty list
+                return False
+            features_str = ' '.join(str(item).lower() for item in features)
+        else:
+            # Only use pd.isna for non-list types
+            if pd.isna(features):
+                return False
+            features_str = str(features).lower()
+        
+        return any(keyword.lower() in features_str for keyword in keywords)
+
+    def _count_images(self, images) -> int:
+        """Count number of images."""
+        # Fix: Check for None/empty first, then pd.isna for non-lists
+        if images is None or not images:
+            return 0
+        
+        if isinstance(images, list):
+            return len(images)
+        
+        # Only use pd.isna for non-list types
+        if pd.isna(images):
+            return 0
+        
+        if isinstance(images, str):
+            try:
+                import ast
+                images = ast.literal_eval(images)
+                if isinstance(images, list):
+                    return len(images)
+            except:
+                pass
+            return 1 if len(images) > 0 else 0
+        
+        return 0
+
+    def _count_features(self, features) -> int:
+        """Count number of features/characteristics."""
+        # Fix: Handle pandas Series and lists properly
+        if isinstance(features, pd.Series):
+            # Convert Series to list first
+            features_list = features.tolist()
+            return sum(1 for item in features_list if item is not None and item != '')
+        
+        # Handle None and empty cases
+        if features is None or not features:
+            return 0
+        
+        if isinstance(features, list):
+            return len([item for item in features if item is not None and str(item).strip()])
+        
+        # Only use pd.isna for non-list types
+        if pd.isna(features):
+            return 0
+        
+        if isinstance(features, str):
+            try:
+                import ast
+                parsed_features = ast.literal_eval(features)
+                if isinstance(parsed_features, list):
+                    return len([item for item in parsed_features if item is not None and str(item).strip()])
+            except:
+                pass
+            return len(features.split(',')) if ',' in features else 1
+        
+        return 0
+
+    def _contains_keywords(self, text: str, keywords: List[str]) -> bool:
+        """Check if text contains any of the keywords."""
+        # Fix: Check for None first, then pd.isna
+        if text is None:
+            return False
+        
+        if not isinstance(text, list) and pd.isna(text):
+            return False
+
+        text_clean = unidecode(str(text).lower())
+        return any(keyword in text_clean for keyword in keywords)
+
     def _categorize_sector(self, sector: str) -> str:
         """Categorize sector based on known classifications."""
-        if pd.isna(sector):
+        # Fix: Check for None first
+        if sector is None:
+            return 'unknown'
+        
+        if not isinstance(sector, list) and pd.isna(sector):
             return 'unknown'
 
         sector_clean = unidecode(str(sector).lower())
@@ -415,7 +504,11 @@ class FeatureExtractor:
 
     def _simplify_property_type(self, tipo: str) -> str:
         """Simplify property type to main categories."""
-        if pd.isna(tipo):
+        # Fix: Check for None first
+        if tipo is None:
+            return 'unknown'
+        
+        if not isinstance(tipo, list) and pd.isna(tipo):
             return 'unknown'
 
         tipo_clean = unidecode(str(tipo).lower())
@@ -430,53 +523,6 @@ class FeatureExtractor:
             return 'penthouse'
         else:
             return 'otro'
-
-    def _contains_keywords(self, text: str, keywords: List[str]) -> bool:
-        """Check if text contains any of the keywords."""
-        if pd.isna(text):
-            return False
-
-        text_clean = unidecode(str(text).lower())
-        return any(keyword in text_clean for keyword in keywords)
-
-    def _count_images(self, images) -> int:
-        """Count number of images."""
-        if pd.isna(images):
-            return 0
-        if isinstance(images, str):
-            try:
-                import ast
-                images = ast.literal_eval(images)
-            except:
-                return 1 if len(images) > 0 else 0
-        if isinstance(images, list):
-            return len(images)
-        return 0
-
-    def _count_features(self, features) -> int:
-        """Count number of features/characteristics."""
-        if isinstance(features, pd.Series):
-            features = features.tolist()
-        if not features:
-            print("No features found or NaN")
-            return 0
-        if isinstance(features, str):
-            try:
-                import ast
-                features = ast.literal_eval(features)
-            except:
-                return len(features.split(',')) if ',' in features else 1
-        if isinstance(features, list):
-            return len(features)
-        return 0
-
-    def _has_amenity(self, features, keywords: List[str]) -> bool:
-        """Check if property has specific amenity."""
-        if pd.isna(features):
-            return False
-
-        features_str = str(features).lower()
-        return any(keyword in features_str for keyword in keywords)
 
     def _calculate_value_score(self, df: pd.DataFrame) -> pd.Series:
         """Calculate a value score based on price and location."""
