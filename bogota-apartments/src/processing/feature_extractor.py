@@ -84,7 +84,8 @@ class FeatureExtractor:
         df['vigilancia'] = df['caracteristicas'].apply(self._check_vigilancia)
         
         # Count total characteristics
-        df['numero_caracteristicas'] = df['caracteristicas'].apply(self._count_features)
+        df['numero_caracteristicas'] = self._count_features(df['caracteristicas'])
+        # df['numero_caracteristicas'] = df['caracteristicas'].apply(self._count_features)
         
         print("✅ Original boolean features extracted")
         return df
@@ -217,11 +218,13 @@ class FeatureExtractor:
         
         elif has_precio_venta:
             # Only venta exists
+            print("Extracting price per m2 from precio_venta")
             df['precio_por_m2'] = np.where(
                 (df['area'].notna()) & (df['area'] > 0),
                 df['precio_venta'] / df['area'],
                 np.nan
             )
+            print("✅ precio_por_m2 extracted from precio_venta")
             price_for_categories = df['precio_venta']
         
         elif has_precio_arriendo:
@@ -452,7 +455,10 @@ class FeatureExtractor:
 
     def _count_features(self, features) -> int:
         """Count number of features/characteristics."""
-        if pd.isna(features):
+        if isinstance(features, pd.Series):
+            features = features.tolist()
+        if not features:
+            print("No features found or NaN")
             return 0
         if isinstance(features, str):
             try:
