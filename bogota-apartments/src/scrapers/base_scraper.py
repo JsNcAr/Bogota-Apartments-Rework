@@ -126,6 +126,7 @@ class BaseSpider(scrapy.Spider):
             f"Saved {len(self.scraped_items)} items to {csv_filename} and {json_filename}")
 
     def closed(self, reason):
-        """Called when spider closes - save all collected items."""
-        self.save_items_to_file()
+        """Called when spider closes."""
+        # Comment out the file saving since pipeline handles it
+        # self.save_items_to_file()
         self.logger.info(f"Spider closed: {reason}")
