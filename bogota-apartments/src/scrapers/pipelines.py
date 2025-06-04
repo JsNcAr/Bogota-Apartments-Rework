@@ -1,12 +1,12 @@
 import json
-import csv
 from datetime import datetime
 from pathlib import Path
+from scrapy.exceptions import DropItem
 
 
 class StreamingFileOutputPipeline:
     """
-    Streaming pipeline that writes items immediately for better performance.
+    Streaming pipeline that writes items immediately to JSONL for best performance.
     """
 
     def __init__(self):
@@ -14,24 +14,29 @@ class StreamingFileOutputPipeline:
         self.output_dir = Path("data/raw")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.jsonl_file = None
-        self.csv_file = None
-        self.csv_writer = None
-        self.all_fieldnames = set()
-        self.items_for_csv = []  # Only store items for CSV processing
+        self.max_items = None
 
     def open_spider(self, spider):
-        """Initialize files when spider starts."""
+        """Initialize JSONL file when spider starts."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Get the item limit from settings
+        self.max_items = spider.settings.getint('CLOSESPIDER_ITEMCOUNT', None)
+        if self.max_items:
+            spider.logger.info(f"Pipeline will enforce item limit: {self.max_items}")
         
         # Open JSONL file for immediate writing
         jsonl_filename = self.output_dir / f"{spider.name}_{timestamp}.jsonl"
         self.jsonl_file = open(jsonl_filename, 'w', encoding='utf-8')
-        
-        # Store CSV filename for later
-        self.csv_filename = self.output_dir / f"{spider.name}_{timestamp}.csv"
 
     def process_item(self, item, spider):
-        """Process each item immediately."""
+        """Write each item immediately to JSONL."""
+        # Check if we've reached the limit
+        if self.max_items and self.items_count >= self.max_items:
+            spider.logger.info(f"Pipeline reached item limit ({self.max_items}), stopping spider")
+            spider.crawler.engine.close_spider(spider, 'Pipeline item limit reached')
+            raise DropItem(f"Item limit reached: {self.max_items}")
+        
         item_dict = dict(item)
         
         # Write to JSONL immediately (fastest)
@@ -42,29 +47,19 @@ class StreamingFileOutputPipeline:
         else:
             raise RuntimeError("JSONL file is not open. Did you forget to call open_spider?")
         
-        # Store for CSV processing
-        self.items_for_csv.append(item_dict)
-        self.all_fieldnames.update(item_dict.keys())
         self.items_count += 1
+        
+        # Log progress periodically
+        if self.items_count % 10 == 0:
+            spider.logger.info(f"Processed {self.items_count} items")
+            if self.max_items:
+                spider.logger.info(f"Progress: {self.items_count}/{self.max_items}")
         
         return item
 
     def close_spider(self, spider):
-        """Close files and write CSV."""
-        # Close JSONL file
+        """Close JSONL file."""
         if self.jsonl_file:
             self.jsonl_file.close()
-        
-        # Write CSV with all collected fieldnames
-        if self.items_for_csv:
-            fieldnames = sorted(self.all_fieldnames)
-            
-            with open(self.csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                writer.writeheader()
-                
-                for item in self.items_for_csv:
-                    row = {field: item.get(field, '') for field in fieldnames}
-                    writer.writerow(row)
 
-        spider.logger.info(f"Pipeline saved {self.items_count} items to files")
+        spider.logger.info(f"Pipeline saved {self.items_count} items to JSONL")
