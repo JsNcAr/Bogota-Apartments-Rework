@@ -98,13 +98,23 @@ class BaseSpider(scrapy.Spider):
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        # Collect all unique fieldnames from all items
+        all_fieldnames = set()
+        for item in self.scraped_items:
+            all_fieldnames.update(item.keys())
+        
+        fieldnames = sorted(all_fieldnames)  # Sort for consistency
+
         # Save to CSV
         csv_filename = self.output_dir / f"{self.name}_{timestamp}.csv"
-        fieldnames = self.scraped_items[0].keys()
         with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(self.scraped_items)
+            
+            # Fill missing fields with empty values
+            for item in self.scraped_items:
+                row = {field: item.get(field, '') for field in fieldnames}
+                writer.writerow(row)
 
         # Save to JSON
         json_filename = self.output_dir / f"{self.name}_{timestamp}.json"
