@@ -34,7 +34,7 @@ ROBOTSTXT_OBEY = False
 
 # Configure pipelines
 ITEM_PIPELINES = {
-    'src.scrapers.pipelines.FileOutputPipeline': 300,
+    'src.scrapers.pipelines.StreamingFileOutputPipeline': 300,
 }
 
 # Configure delays and autothrottling
