@@ -116,11 +116,11 @@ class BaseSpider(scrapy.Spider):
                 row = {field: item.get(field, '') for field in fieldnames}
                 writer.writerow(row)
 
-        # Save to JSON
+        # Save to JSON (optimized)
         json_filename = self.output_dir / f"{self.name}_{timestamp}.json"
         with open(json_filename, 'w', encoding='utf-8') as jsonfile:
             json.dump(self.scraped_items, jsonfile,
-                      ensure_ascii=False, indent=2, default=str)
+                      ensure_ascii=False, separators=(',', ':'), default=str)
 
         self.logger.info(
             f"Saved {len(self.scraped_items)} items to {csv_filename} and {json_filename}")
