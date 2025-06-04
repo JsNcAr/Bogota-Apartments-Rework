@@ -32,9 +32,9 @@ NEWSPIDER_MODULE = 'src.scrapers'
 # Obey robots.txt rules
 ROBOTSTXT_OBEY = False
 
-# Configure pipelines
+# Configure pipelines with higher priority (lower number = higher priority)
 ITEM_PIPELINES = {
-    'src.scrapers.pipelines.StreamingFileOutputPipeline': 300,
+    'src.scrapers.pipelines.StreamingFileOutputPipeline': 100,  # Changed from 50
 }
 
 # Configure delays and autothrottling
@@ -66,6 +66,7 @@ TELNETCONSOLE_ENABLED = False
 # Configure extensions
 EXTENSIONS = {
     'scrapy.extensions.telnet.TelnetConsole': None,
+    'scrapy.extensions.closespider.CloseSpider': 500,  # Enable close spider extension
 }
 
 # Enable and configure HTTP caching
@@ -73,6 +74,10 @@ HTTPCACHE_ENABLED = True
 HTTPCACHE_EXPIRATION_SECS = 3600
 HTTPCACHE_DIR = 'httpcache'
 HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 408, 429]
+
+# Configure close spider settings
+# CLOSESPIDER_ITEMCOUNT = 50  # Set your default limit here
+# CLOSESPIDER_TIMEOUT = 300   # Optional: close after 5 minutes
 
 # Configure feeds (additional output options)
 # FEEDS = {
