@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from pathlib import Path
+import numpy as np
 
 # Add src to Python path
 project_root = Path(__file__).parent.parent
@@ -90,6 +91,11 @@ def advanced_feature_extraction(df):
         from processing.feature_extractor import FeatureExtractor
         
         print("Using advanced FeatureExtractor...")
+        
+        # Clean numeric columns first - THIS IS CRUCIAL
+        print("Cleaning numeric columns...")
+        df = clean_numeric_columns(df)
+        
         extractor = FeatureExtractor()
         
         # This includes BOTH original boolean features AND advanced features
@@ -108,8 +114,53 @@ def advanced_feature_extraction(df):
         return df
     except Exception as e:
         print(f"❌ Error during feature extraction: {e}")
+        import traceback
+        traceback.print_exc()  # This will show the full error trace
         print("Continuing with basic processing...")
         return df
+
+def clean_numeric_columns(df):
+    """Clean numeric columns that might contain lists or strings."""
+    numeric_columns = ['precio_venta', 'precio_arriendo', 'area', 'habitaciones', 'banos', 
+                      'parqueaderos', 'administracion', 'antiguedad', 'estrato']
+    
+    for col in numeric_columns:
+        if col in df.columns:
+            
+            def clean_numeric_value(value):
+                # Handle None/NaN
+                if value is None:
+                    return np.nan
+                
+                # Handle lists
+                if isinstance(value, list):
+                    if len(value) == 0:
+                        return np.nan
+                    # Take first number if it's a list
+                    try:
+                        first_val = value[0]
+                        return float(first_val) if first_val is not None else np.nan
+                    except (ValueError, TypeError, IndexError):
+                        return np.nan
+                
+                # Handle pandas NaN (only for non-lists)
+                if not isinstance(value, list) and pd.isna(value):
+                    return np.nan
+                
+                # Handle strings and other types
+                try:
+                    if isinstance(value, list):
+                        return np.nan
+                    return float(value)
+                except (ValueError, TypeError):
+                    return np.nan
+            
+            original_type = df[col].dtype
+            df[col] = df[col].apply(clean_numeric_value)
+            print(f"  {col}: {original_type} -> {df[col].dtype}")
+            print(f"  Non-null values: {df[col].notna().sum()}/{len(df)}")
+    
+    return df
 
 def run_data_processing():
     """Enhanced processing with comprehensive feature extraction."""
@@ -190,13 +241,17 @@ def run_data_processing():
     missing_removed = before_cleaning - len(combined_data)
     print(f"Removed {missing_removed} rows with missing essential data")
     
-    # Step 6: ADVANCED feature extraction (includes original + new features)
-    print("\nStep 5: Advanced feature extraction...")
+    # Step 6: Clean numeric columns
+    print("\nStep 5: Cleaning numeric columns...")
+    combined_data = clean_numeric_columns(combined_data)
+    
+    # Step 7: ADVANCED feature extraction (includes original + new features)
+    print("\nStep 6: Advanced feature extraction...")
     print("This may take a moment...")
     enhanced_data = advanced_feature_extraction(combined_data)
     
-    # Step 7: Save final processed data
-    print("\nStep 6: Saving enhanced processed data...")
+    # Step 8: Save final processed data
+    print("\nStep 7: Saving enhanced processed data...")
     apartments_file = interim_dir / 'apartments_enhanced.csv'
     save_to_csv(enhanced_data, apartments_file)
     
