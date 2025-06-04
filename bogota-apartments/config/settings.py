@@ -75,15 +75,15 @@ HTTPCACHE_DIR = 'httpcache'
 HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 408, 429]
 
 # Configure feeds (additional output options)
-FEEDS = {
-    'data/raw/%(name)s_%(time)s.jsonl': {  # Use JSONL for better performance
-        'format': 'jsonlines',
-        'encoding': 'utf8',
-        'store_empty': False,  # Don't store items with no data
-        'item_export_kwargs': {
-            'ensure_ascii': False,
-        },
-    },
-    # Remove CSV from FEEDS (CSV is slower for large datasets)
-}
+# FEEDS = {
+#     'data/raw/%(name)s_%(time)s.jsonl': {  # Use JSONL for better performance
+#         'format': 'jsonlines',
+#         'encoding': 'utf8',
+#         'store_empty': False,  # Don't store items with no data
+#         'item_export_kwargs': {
+#             'ensure_ascii': False,
+#         },
+#     },
+#     # Remove CSV from FEEDS (CSV is slower for large datasets)
+# }
 
