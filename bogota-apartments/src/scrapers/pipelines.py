@@ -44,10 +44,10 @@ class FileOutputPipeline:
                     row = {field: item.get(field, '') for field in fieldnames}
                     writer.writerow(row)
 
-        # Save to JSON (unchanged)
+        # Save to JSON (optimized for speed)
         json_filename = self.output_dir / f"{spider.name}_{timestamp}.json"
         with open(json_filename, 'w', encoding='utf-8') as jsonfile:
-            json.dump(self.items, jsonfile, ensure_ascii=False,
-                      indent=2, default=str)
+            json.dump(self.items, jsonfile, ensure_ascii=False, 
+                      separators=(',', ':'), default=str)  # Remove indent, use compact separators
 
         spider.logger.info(f"Pipeline saved {len(self.items)} items to files")
