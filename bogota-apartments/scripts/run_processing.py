@@ -50,11 +50,21 @@ def save_to_csv(data, filename):
         print("No data to save")
         return
     
-    # Handle missing fields by filling with empty strings
-    data = data.fillna('')
+    # Make a copy to avoid modifying original data
+    data_copy = data.copy()
+    
+    # Convert categorical columns to strings before filling
+    categorical_columns = data_copy.select_dtypes(include=['category']).columns
+    if len(categorical_columns) > 0:
+        print(f"Converting {len(categorical_columns)} categorical columns to strings...")
+        for col in categorical_columns:
+            data_copy[col] = data_copy[col].astype(str)
+    
+    # Now safely fill NaN values
+    data_copy = data_copy.fillna('')
     
     # Save to CSV
-    data.to_csv(filename, index=False, encoding='utf-8')
+    data_copy.to_csv(filename, index=False, encoding='utf-8')
     print(f"CSV saved to: {filename}")
 
 def process_images(df):
@@ -101,7 +111,7 @@ def advanced_feature_extraction(df):
         # This includes BOTH original boolean features AND advanced features
         enhanced_df = extractor.extract_features(df)
         
-        print(f"✅ Feature extraction completed")
+        print(f"Feature extraction completed")
         print(f"   Original columns: {len(df.columns)}")
         print(f"   Enhanced columns: {len(enhanced_df.columns)}")
         print(f"   New features added: {len(enhanced_df.columns) - len(df.columns)}")
@@ -276,7 +286,7 @@ def run_data_processing():
         
         feature_examples = [
             'jacuzzi', 'piscina', 'gimnasio', 'precio_por_m2', 'categoria_precio',
-            'score_valor', 'score_lujo', 'categoria_sector', 'tipo_simplificado'
+            'score_valor', 'score_lujo', 'tipo_simplificado'
         ]
         
         available_examples = [f for f in feature_examples if f in new_features]
