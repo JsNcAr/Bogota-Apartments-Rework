@@ -4,13 +4,14 @@ import re
 from typing import Dict, List, Optional
 from unidecode import unidecode
 import logging
-from pathlib import Path
 
 
 class FeatureExtractor:
     """
-    Extract meaningful features from cleaned apartment data.
-    Includes both original boolean extractions and advanced feature engineering.
+    Extract property-level features from cleaned apartment data.
+    Focuses on: amenities, property characteristics, basic metrics, and property-specific scoring.
+    
+    Note: Market analysis and geographic features are handled by GeoDataEnricher.
     """
 
     def __init__(self):
@@ -28,35 +29,27 @@ class FeatureExtractor:
             'camara', 'control acceso', 'cerrado'
         ]
 
-        # Sector classification (you can expand this based on your knowledge of Bogotá)
-        self.sector_categories = {
-            'premium': ['chapinero', 'zona rosa', 'rosales', 'chicó', 'usaquén'],
-            'high': ['cedritos', 'country', 'santa barbara', 'la carolina'],
-            'medium': ['suba', 'engativá', 'fontibón', 'teusaquillo'],
-            'popular': ['kennedy', 'bosa', 'san cristóbal', 'rafael uribe']
-        }
-
     def extract_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Extract all features from the cleaned data.
+        Extract property-level features from the cleaned data.
         """
-        self.logger.info(f"Extracting features from {len(data)} records...")
+        self.logger.info(f"Extracting property features from {len(data)} records...")
 
         # Make a copy to avoid modifying original data
         df = data.copy()
 
         # Extract different types of features
-        df = self._extract_original_boolean_features(df)  # Original extract_features functions
-        df = self._extract_price_features(df)
-        df = self._extract_area_features(df)
-        df = self._extract_location_features(df)
-        df = self._extract_property_features(df)
-        df = self._extract_text_features(df)
-        df = self._extract_amenity_features(df)
-        df = self._extract_derived_features(df)
+        df = self._extract_original_boolean_features(df)  # Original boolean amenities
+        df = self._extract_basic_price_features(df)       # Basic price metrics only
+        df = self._extract_area_features(df)              # Area-related features
+        df = self._extract_location_features(df)          # Basic location features
+        df = self._extract_property_features(df)          # Property characteristics
+        df = self._extract_text_features(df)              # Text analysis
+        df = self._extract_amenity_features(df)           # Additional amenities
+        df = self._extract_property_scores(df)            # Property-specific scores only
 
         self.logger.info(
-            f"Feature extraction completed. Added {len(df.columns) - len(data.columns)} new features")
+            f"Property feature extraction completed. Added {len(df.columns) - len(data.columns)} new features")
         return df
 
     def _extract_original_boolean_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -66,7 +59,7 @@ class FeatureExtractor:
             print("No 'caracteristicas' column found")
             return df
             
-        print("Extracting original boolean features from caracteristicas...")
+        print("Extracting boolean features from caracteristicas...")
         
         # Apply all original extraction functions
         df['jacuzzi'] = df['caracteristicas'].apply(self._check_jacuzzi)
@@ -82,132 +75,18 @@ class FeatureExtractor:
         df['terraza'] = df['caracteristicas'].apply(self._check_terraza)
         df['amoblado'] = df['caracteristicas'].apply(self._check_amoblado)
         df['vigilancia'] = df['caracteristicas'].apply(self._check_vigilancia)
-        
-        # Count total characteristics
-        df['numero_caracteristicas'] = self._count_features(df['caracteristicas'])
-        # df['numero_caracteristicas'] = df['caracteristicas'].apply(self._count_features)
-        
+
         return df
 
-    # ========== ORIGINAL EXTRACT_FEATURES FUNCTIONS (INTEGRATED) ==========
-    
-    def _check_jacuzzi(self, x):
-        """Check if 'JACUZZI' is in the list x."""
-        if isinstance(x, list):
-            return 1 if 'JACUZZI' in x else 0
-        else:
-            return 0
-
-    def _extract_piso(self, x):
-        """Extracts the floor number from a list of strings."""
-        if isinstance(x, list):
-            try:
-                for item in x:
-                    if item.startswith('PISO '):
-                        return int(item.split(' ')[1])
-            except:
-                return np.nan
-        else:
-            return np.nan
-
-    def _extract_closets(self, x):
-        """Extracts the number of closets from a list of apartment features."""
-        if isinstance(x, list):
-            try:
-                for item in x:
-                    if item.startswith('CLOSETS'):
-                        return int(item.split(' ')[1])
-            except:
-                return np.nan
-        else:
-            return np.nan
-
-    def _check_chimeny(self, x):
-        """Check if a list contains the string 'CHIMENEA'."""
-        if isinstance(x, list):
-            return 1 if 'CHIMENEA' in x else 0
-        else:
-            return 0
-
-    def _check_mascotas(self, x):
-        if isinstance(x, list):
-            if 'PERMITE MASCOTAS' in x:
-                return 1
-            elif 'ADMITE MASCOTAS' in x:
-                return 1
-            else:
-                return 0
-        else:
-            return 0
-
-    def _check_gimnasio(self, x):
-        """Checks if 'GIMNASIO' is in the input list."""
-        if isinstance(x, list):
-            return 1 if 'GIMNASIO' in x else 0
-        else:
-            return 0
-
-    def _check_ascensor(self, x):
-        """Check if 'ASCENSOR' is in the given list."""
-        if isinstance(x, list):
-            return 1 if 'ASCENSOR' in x else 0
-        else:
-            return 0
-
-    def _check_conjunto_cerrado(self, x):
-        """Check if a list contains the string 'CONJUNTO CERRADO'."""
-        if isinstance(x, list):
-            return 1 if 'CONJUNTO CERRADO' in x else 0
-        else:
-            return 0
-        
-    def _check_piscina(self, x):
-        """Check if a list contains the string 'PISCINA'."""
-        if isinstance(x, list):
-            return 1 if 'PISCINA' in x else 0
-        else:
-            return 0
-
-    def _check_salon_comunal(self, x):
-        """Check if a list contains the string 'SALÓN COMUNAL'."""
-        if isinstance(x, list):
-            return 1 if 'SALÓN COMUNAL' in x else 0
-        else:
-            return 0
-        
-    def _check_terraza(self, x):
-        """Check if a list contains the string 'TERRAZA'."""
-        if isinstance(x, list):
-            return 1 if 'TERRAZA' in x else 0
-        else:
-            return 0
-        
-    def _check_amoblado(self, x):
-        """Check if a list contains the string 'AMOBLADO'."""
-        if isinstance(x, list):
-            return 1 if 'AMOBLADO' in x else 0
-        else:
-            return 0
-        
-    def _check_vigilancia(self, x):
-        """Check if a list contains the string 'VIGILANCIA'."""
-        if isinstance(x, list):
-            return 1 if any(re.findall(r'VIGILANCIA', str(x))) else 0
-        else:
-            return 0
-
-    # ========== ADVANCED FEATURE EXTRACTION METHODS ==========
-
-    def _extract_price_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Extract price-related features."""
+    def _extract_basic_price_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Extract basic price-related features (no market analysis)."""
     
         # Check which price columns exist
         has_precio_venta = 'precio_venta' in df.columns
         has_precio_arriendo = 'precio_arriendo' in df.columns
     
-        # Price per square meter (handle missing columns)
+        # Basic price per square meter calculation
         if has_precio_venta and has_precio_arriendo:
-            # Both columns exist
             df['precio_por_m2'] = np.where(
                 (df['area'].notna()) & (df['area'] > 0),
                 df['precio_venta'].fillna(df['precio_arriendo']) / df['area'],
@@ -216,7 +95,6 @@ class FeatureExtractor:
             price_for_categories = df['precio_venta'].fillna(df['precio_arriendo'])
         
         elif has_precio_venta:
-            # Only venta exists
             df['precio_por_m2'] = np.where(
                 (df['area'].notna()) & (df['area'] > 0),
                 df['precio_venta'] / df['area'],
@@ -225,7 +103,6 @@ class FeatureExtractor:
             price_for_categories = df['precio_venta']
         
         elif has_precio_arriendo:
-            # Only arriendo exists
             df['precio_por_m2'] = np.where(
                 (df['area'].notna()) & (df['area'] > 0),
                 df['precio_arriendo'] / df['area'],
@@ -234,12 +111,11 @@ class FeatureExtractor:
             price_for_categories = df['precio_arriendo']
         
         else:
-            # No price columns exist
             print("⚠️  Warning: No price columns found for price feature extraction")
             df['precio_por_m2'] = np.nan
             price_for_categories = pd.Series([np.nan] * len(df))
 
-        # Price categories
+        # Basic price categories (property-level, not market-based)
         df['categoria_precio'] = pd.cut(
             price_for_categories,
             bins=[0, 200_000_000, 400_000_000, 600_000_000, np.inf],
@@ -247,7 +123,7 @@ class FeatureExtractor:
             include_lowest=True
         )
 
-        # Administration percentage of price (only works with precio_venta)
+        # Administration percentage (basic property metric)
         if has_precio_venta and 'administracion' in df.columns:
             df['admin_percentage'] = np.where(
                 df['precio_venta'].notna() & (df['precio_venta'] > 0),
@@ -287,8 +163,7 @@ class FeatureExtractor:
         return df
 
     def _extract_location_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Extract location-related features."""
-
+        """Extract basic location features (no geographic analysis)."""
 
         # Estrato categories
         df['categoria_estrato'] = pd.cut(
@@ -317,24 +192,25 @@ class FeatureExtractor:
         df['tiene_parqueadero'] = (df['parqueaderos'].fillna(0) > 0)
 
         # Property age categories
-        df['categoria_antiguedad'] = pd.cut(
-            df['antiguedad'],
-            bins=[0, 5, 15, 30, np.inf],
-            labels=['nuevo', 'reciente', 'usado', 'antiguo'],
-            include_lowest=True
-        )
+        if 'antiguedad' in df.columns:
+            df['categoria_antiguedad'] = pd.cut(
+                df['antiguedad'],
+                bins=[0, 5, 15, 30, np.inf],
+                labels=['nuevo', 'reciente', 'usado', 'antiguo'],
+                include_lowest=True
+            )
 
         # Property type simplified
-        df['tipo_simplificado'] = df['tipo_propiedad'].apply(self._simplify_property_type)
+        if 'tipo_propiedad' in df.columns:
+            df['tipo_simplificado'] = df['tipo_propiedad'].apply(self._simplify_property_type)
 
         return df
 
     def _extract_text_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Extract features from text descriptions."""
 
-        # Description length
+        # Description analysis
         if 'descripcion' in df.columns:
-            # Has description
             df['tiene_descripcion'] = df['descripcion'].notna() & (df['descripcion'].str.len() > 10)
             
             # Luxury indicators from description
@@ -351,20 +227,13 @@ class FeatureExtractor:
             df['indica_lujo'] = False
             df['indica_seguridad'] = False
 
-        # Number of images - Handle missing column
-        if 'imagenes' in df.columns:
-            df['numero_imagenes'] = df['imagenes'].apply(self._count_images)
-        else:
-            df['numero_imagenes'] = 0
-
         return df
 
     def _extract_amenity_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Extract additional amenity-related features (beyond the original boolean ones)."""
+        """Extract additional amenity-related features."""
         
-        # Additional amenity analysis (beyond the boolean ones already extracted)
         if 'caracteristicas' in df.columns:
-            # Count different types of amenities
+            # Group amenities by type
             df['tiene_zona_social'] = df['caracteristicas'].apply(
                 lambda x: self._has_amenity(x, ['zona social', 'salon comunal', 'bbq'])
             )
@@ -374,103 +243,137 @@ class FeatureExtractor:
             
         return df
 
-    def _extract_derived_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Extract derived and composite features."""
+    def _extract_property_scores(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Extract property-specific scores (not market-based)."""
 
-        # Value score (combination of price per m2 and location)
-        df['score_valor'] = self._calculate_value_score(df)
-
-        # Completeness score (how much information is available)
+        # Data completeness score
         df['score_completitud'] = self._calculate_completeness_score(df)
 
-        # Luxury score
+        # Luxury score (property-based)
         df['score_lujo'] = self._calculate_luxury_score(df)
 
-        # Family friendly score
+        # Family friendly score (property-based)
         df['score_familiar'] = self._calculate_family_score(df)
+
+        # NOTE: Value score removed (market-based, handled by GeoDataEnricher)
 
         return df
 
-    # ========== HELPER METHODS ==========
+    # ========== ORIGINAL BOOLEAN FEATURE FUNCTIONS (UNCHANGED) ==========
+    
+    def _check_jacuzzi(self, x):
+        if isinstance(x, list):
+            return 1 if 'JACUZZI' in x else 0
+        else:
+            return 0
+
+    def _extract_piso(self, x):
+        if isinstance(x, list):
+            try:
+                for item in x:
+                    if item.startswith('PISO '):
+                        return int(item.split(' ')[1])
+            except:
+                return np.nan
+        else:
+            return np.nan
+
+    def _extract_closets(self, x):
+        if isinstance(x, list):
+            try:
+                for item in x:
+                    if item.startswith('CLOSETS'):
+                        return int(item.split(' ')[1])
+            except:
+                return np.nan
+        else:
+            return np.nan
+
+    def _check_chimeny(self, x):
+        if isinstance(x, list):
+            return 1 if 'CHIMENEA' in x else 0
+        else:
+            return 0
+
+    def _check_mascotas(self, x):
+        if isinstance(x, list):
+            if 'PERMITE MASCOTAS' in x:
+                return 1
+            elif 'ADMITE MASCOTAS' in x:
+                return 1
+            else:
+                return 0
+        else:
+            return 0
+
+    def _check_gimnasio(self, x):
+        if isinstance(x, list):
+            return 1 if 'GIMNASIO' in x else 0
+        else:
+            return 0
+
+    def _check_ascensor(self, x):
+        if isinstance(x, list):
+            return 1 if 'ASCENSOR' in x else 0
+        else:
+            return 0
+
+    def _check_conjunto_cerrado(self, x):
+        if isinstance(x, list):
+            return 1 if 'CONJUNTO CERRADO' in x else 0
+        else:
+            return 0
+        
+    def _check_piscina(self, x):
+        if isinstance(x, list):
+            return 1 if 'PISCINA' in x else 0
+        else:
+            return 0
+
+    def _check_salon_comunal(self, x):
+        if isinstance(x, list):
+            return 1 if 'SALÓN COMUNAL' in x else 0
+        else:
+            return 0
+        
+    def _check_terraza(self, x):
+        if isinstance(x, list):
+            return 1 if 'TERRAZA' in x else 0
+        else:
+            return 0
+        
+    def _check_amoblado(self, x):
+        if isinstance(x, list):
+            return 1 if 'AMOBLADO' in x else 0
+        else:
+            return 0
+        
+    def _check_vigilancia(self, x):
+        if isinstance(x, list):
+            return 1 if any(re.findall(r'VIGILANCIA', str(x))) else 0
+        else:
+            return 0
+
+    # ========== HELPER METHODS (UNCHANGED) ==========
 
     def _has_amenity(self, features, keywords: List[str]) -> bool:
-        """Check if property has specific amenity."""
-        # Fix: Don't use pd.isna on lists
         if features is None or not features:
             return False
         
-        # Handle different input types
         if isinstance(features, list):
-            if not features:  # Empty list
+            if not features:
                 return False
             features_str = ' '.join(str(item).lower() for item in features)
         else:
-            # Only use pd.isna for non-list types
             if pd.isna(features):
                 return False
             features_str = str(features).lower()
         
         return any(keyword.lower() in features_str for keyword in keywords)
 
-    def _count_images(self, images) -> int:
-        """Count number of images."""
-        # Fix: Check for None/empty first, then pd.isna for non-lists
-        if images is None or not images:
-            return 0
-        
-        if isinstance(images, list):
-            return len(images)
-        
-        # Only use pd.isna for non-list types
-        if pd.isna(images):
-            return 0
-        
-        if isinstance(images, str):
-            try:
-                import ast
-                images = ast.literal_eval(images)
-                if isinstance(images, list):
-                    return len(images)
-            except:
-                pass
-            return 1 if len(images) > 0 else 0
-        
-        return 0
 
-    def _count_features(self, features) -> int:
-        """Count number of features/characteristics."""
-        # Fix: Handle pandas Series and lists properly
-        if isinstance(features, pd.Series):
-            # Convert Series to list first
-            features_list = features.tolist()
-            return sum(1 for item in features_list if item is not None and item != '')
-        
-        # Handle None and empty cases
-        if features is None or not features:
-            return 0
-        
-        if isinstance(features, list):
-            return len([item for item in features if item is not None and str(item).strip()])
-        
-        # Only use pd.isna for non-list types
-        if pd.isna(features):
-            return 0
-        
-        if isinstance(features, str):
-            try:
-                import ast
-                parsed_features = ast.literal_eval(features)
-                if isinstance(parsed_features, list):
-                    return len([item for item in parsed_features if item is not None and str(item).strip()])
-            except:
-                pass
-            return len(features.split(',')) if ',' in features else 1
-        
-        return 0
 
     def _contains_keywords(self, text: str, keywords: List[str]) -> bool:
-        """Check if text contains any of the keywords."""
-        # Fix: Check for None first, then pd.isna
         if text is None:
             return False
         
@@ -480,10 +383,7 @@ class FeatureExtractor:
         text_clean = unidecode(str(text).lower())
         return any(keyword in text_clean for keyword in keywords)
 
-
     def _simplify_property_type(self, tipo: str) -> str:
-        """Simplify property type to main categories."""
-        # Fix: Check for None first
         if tipo is None:
             return 'unknown'
         
@@ -503,41 +403,6 @@ class FeatureExtractor:
         else:
             return 'otro'
 
-    def _calculate_value_score(self, df: pd.DataFrame) -> pd.Series:
-        """Calculate a value score based on price, location, and amenities."""
-        score = pd.Series(0.0, index=df.index)
-
-        # Price component (inverse - lower price per m2 is better value)
-        if 'precio_por_m2' in df.columns and df['precio_por_m2'].notna().any():
-            try:
-                price_score = 1 - (df['precio_por_m2'].rank(pct=True, na_option='bottom'))
-                score += price_score.fillna(0) * 0.4
-            except Exception as e:
-                print(f"Warning: Could not calculate price score: {e}")
-
-        # Estrato component
-        if 'estrato' in df.columns:
-            estrato_score = df['estrato'].fillna(2) / 6.0
-            score += estrato_score * 0.3
-
-        # Area efficiency component
-        if 'eficiencia_espacial' in df.columns:
-            try:
-                area_score = df['eficiencia_espacial'].rank(pct=True, na_option='bottom')
-                score += area_score.fillna(0) * 0.2
-            except Exception as e:
-                print(f"Warning: Could not calculate area efficiency score: {e}")
-
-        # Amenities bonus (more amenities = better value)
-        if 'numero_caracteristicas' in df.columns:
-            try:
-                amenity_score = df['numero_caracteristicas'].fillna(0) / df['numero_caracteristicas'].max() if df['numero_caracteristicas'].max() > 0 else 0
-                score += amenity_score * 0.1
-            except Exception as e:
-                print(f"Warning: Could not calculate amenity score: {e}")
-
-        return score.round(3)
-
     def _calculate_completeness_score(self, df: pd.DataFrame) -> pd.Series:
         """Calculate completeness score based on available information."""
         important_fields = [
@@ -551,32 +416,31 @@ class FeatureExtractor:
         return score.round(3)
 
     def _calculate_luxury_score(self, df: pd.DataFrame) -> pd.Series:
-        """Calculate luxury score based on various indicators."""
+        """Calculate property-based luxury score."""
         score = pd.Series(0.0, index=df.index)
 
-        # High estrato
+        # High estrato (property characteristic)
         if 'estrato' in df.columns:
-            score += (df['estrato'].fillna(0) >= 5).astype(int) * 0.3
+            score += (df['estrato'].fillna(0) >= 5).astype(int) * 0.4
 
-
-        # High price per m2 - FIX: Check if column has valid data first
+        # High price per m2 (property metric)
         if 'precio_por_m2' in df.columns and df['precio_por_m2'].notna().any():
             try:
                 price_quantile = df['precio_por_m2'].quantile(0.8)
                 if pd.notna(price_quantile):
                     high_price = (df['precio_por_m2'] > price_quantile).fillna(False)
-                    score += high_price.astype(int) * 0.2
+                    score += high_price.astype(int) * 0.3
             except Exception as e:
                 print(f"Warning: Could not calculate price quantile: {e}")
 
-        # Luxury indicators in description
+        # Luxury indicators in description (property feature)
         if 'indica_lujo' in df.columns:
-            score += df['indica_lujo'].astype(int) * 0.2
+            score += df['indica_lujo'].astype(int) * 0.3
 
         return score.round(3)
 
     def _calculate_family_score(self, df: pd.DataFrame) -> pd.Series:
-        """Calculate family-friendly score."""
+        """Calculate family-friendly score based on property features."""
         score = pd.Series(0.0, index=df.index)
 
         # Multiple bedrooms
@@ -587,14 +451,13 @@ class FeatureExtractor:
         if 'banos' in df.columns:
             score += np.minimum(df['banos'].fillna(0) / 3.0, 1.0) * 0.2
 
-        # Parking - FIX: Check if column exists first
+        # Parking availability
         if 'parqueaderos' in df.columns:
-            df['tiene_parqueadero'] = (df['parqueaderos'].fillna(0) > 0)
-            score += df['tiene_parqueadero'].astype(int) * 0.2
+            score += (df['parqueaderos'].fillna(0) > 0).astype(int) * 0.2
         elif 'tiene_parqueadero' in df.columns:
             score += df['tiene_parqueadero'].astype(int) * 0.2
 
-        # Good area - FIX: Check if column has valid data
+        # Good area for families
         if 'area' in df.columns and df['area'].notna().any():
             good_area = (df['area'] >= 80).fillna(False)
             score += good_area.astype(int) * 0.3
@@ -621,8 +484,7 @@ if __name__ == "__main__":
     result = extractor.extract_features(sample_data)
     print(f"Original columns: {len(sample_data.columns)}")
     print(f"Final columns: {len(result.columns)}")
-    print("\nNew features:")
-    new_features = [
-        col for col in result.columns if col not in sample_data.columns]
+    print("\nProperty features extracted:")
+    new_features = [col for col in result.columns if col not in sample_data.columns]
     for feature in new_features:
         print(f"- {feature}")
