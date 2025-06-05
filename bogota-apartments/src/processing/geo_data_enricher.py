@@ -121,22 +121,31 @@ class GeoDataEnricher:
             
             # Ensure we have valid coordinate columns
             if 'latitud' in df.columns and 'longitud' in df.columns:
-                df['distancia_transmilenio'] = df.apply(
-                    lambda row: self._calculate_min_distance(
+                # Calculate both distance and closest station name
+                transmilenio_results = df.apply(
+                    lambda row: self._calculate_min_distance_with_info(
                         row, self.transmilenio_gdf, 'latitud', 'longitud'
                     ), axis=1
                 )
+                
+                # Split results into distance and name columns
+                df['distancia_transmilenio'] = transmilenio_results.apply(lambda x: x[0])
+                df['estacion_transmilenio_cercana'] = transmilenio_results.apply(lambda x: x[1])
 
                 # Accessibility score based on TransMilenio proximity
                 df['score_transmilenio'] = self._calculate_accessibility_score(
                     df['distancia_transmilenio'])
+                
+                print(f"     Added TransMilenio distances and closest station names")
             else:
                 print("     No coordinate columns found for TransMilenio distance calculation")
                 df['distancia_transmilenio'] = np.nan
+                df['estacion_transmilenio_cercana'] = None
                 df['score_transmilenio'] = 0.5
         else:
             print("     No TransMilenio data available")
             df['distancia_transmilenio'] = np.nan
+            df['estacion_transmilenio_cercana'] = None
             df['score_transmilenio'] = 0.5  # Neutral score
 
         # Add mobility indicators
@@ -160,28 +169,38 @@ class GeoDataEnricher:
                     poi_subset = self.poi_gdf[self.poi_gdf['type'] == poi_type]
                     if not poi_subset.empty:
                         print(f"     Calculating distances to {poi_type} POIs...")
-                        df[f'distancia_{poi_type}'] = df.apply(
-                            lambda row: self._calculate_min_distance(
+                        
+                        # Calculate both distance and closest POI name
+                        poi_results = df.apply(
+                            lambda row: self._calculate_min_distance_with_info(
                                 row, poi_subset, 'latitud', 'longitud'
                             ), axis=1
                         )
+                        
+                        # Split results into distance and name columns
+                        df[f'distancia_{poi_type}'] = poi_results.apply(lambda x: x[0])
+                        df[f'{poi_type}_cercano'] = poi_results.apply(lambda x: x[1])
                     else:
                         print(f"     No {poi_type} POIs found")
                         df[f'distancia_{poi_type}'] = np.nan
-            
+                        df[f'{poi_type}_cercano'] = None
+        
             else:
                 print("     No coordinate columns found for POI distance calculation")
                 # Set all POI distances to NaN
                 primary_poi_types = ['shopping', 'recreation', 'transportation']
                 for poi_type in primary_poi_types:
                     df[f'distancia_{poi_type}'] = np.nan
+                    df[f'{poi_type}_cercano'] = None
         else:
             print("     No POI data available")
             # Set all POI distances to NaN
             primary_poi_types = ['shopping', 'recreation', 'transportation']
             for poi_type in primary_poi_types:
                 df[f'distancia_{poi_type}'] = np.nan
+                df[f'{poi_type}_cercano'] = None
 
+        # Calculate simplified convenience scores
 
         return df
 
@@ -355,6 +374,96 @@ class GeoDataEnricher:
             # Log the error for debugging but don't crash
             print(f"     Warning: Could not calculate distance for row {row.name}: {e}")
             return np.nan
+
+    def _calculate_min_distance_with_info(self, row, gdf: Optional[gpd.GeoDataFrame], lat_col: str, lon_col: str, name_col: str = 'name') -> tuple:
+        """
+        Calculate minimum distance to features in a GeoDataFrame and return info about closest feature.
+        
+        Args:
+            row: DataFrame row with coordinates
+            gdf: GeoDataFrame with features to calculate distance to
+            lat_col: Name of latitude column in row
+            lon_col: Name of longitude column in row
+            name_col: Name of column in gdf that contains feature names
+            
+        Returns:
+            Tuple of (distance_in_meters, closest_feature_name)
+        """
+        try:
+            if gdf is None or gdf.empty:
+                return np.nan, None
+            
+            # Extract coordinates
+            lat = row.get(lat_col)
+            lon = row.get(lon_col)
+            
+            # Validate coordinates exist
+            if pd.isna(lat) or pd.isna(lon):
+                return np.nan, None
+            
+            # Handle coordinate extraction and clean precision
+            try:
+                # If coordinates are in a list/array format, extract first element
+                if hasattr(lat, '__len__') and not isinstance(lat, str):
+                    lat = lat[0] if len(lat) > 0 else np.nan
+                if hasattr(lon, '__len__') and not isinstance(lon, str):
+                    lon = lon[0] if len(lon) > 0 else np.nan
+                
+                # Convert to float and round to 6 decimal places (11cm precision)
+                lat = round(float(lat), 6)
+                lon = round(float(lon), 6)
+                
+                # Validate coordinate ranges for Bogotá
+                if not (3.5 <= lat <= 5.5 and -75.5 <= lon <= -73.0):
+                    return np.nan, None
+                    
+            except (ValueError, TypeError, IndexError) as e:
+                return np.nan, None
+
+            # Create point and ensure it's in the same projected CRS
+            point = Point(lon, lat)
+            point_gdf = gpd.GeoDataFrame([1], geometry=[point], crs='EPSG:4326')
+            
+            # Convert both to projected CRS
+            gdf_projected = self._ensure_projected_crs(gdf)
+            point_projected = self._ensure_projected_crs(point_gdf)
+            
+            # Calculate distances (now in meters)
+            distances = gdf_projected.geometry.distance(point_projected.geometry.values[0])
+            
+            # Find closest feature
+            min_distance_idx = distances.idxmin()
+            min_distance = float(distances.min())
+            
+            # Get name of closest feature
+            closest_name = None
+            if name_col in gdf_projected.columns:
+                closest_name = gdf_projected.loc[min_distance_idx, name_col]
+            elif 'nombre' in gdf_projected.columns:
+                closest_name = gdf_projected.loc[min_distance_idx, 'nombre']
+            elif 'NOMBRE' in gdf_projected.columns:
+                closest_name = gdf_projected.loc[min_distance_idx, 'NOMBRE']
+            elif 'nombre_estacion' in gdf_projected.columns:
+                closest_name = gdf_projected.loc[min_distance_idx,
+                                                 'nombre_estacion']
+            else:
+                # Fallback: use index or first text column
+                text_columns = gdf_projected.select_dtypes(include=['object', 'string']).columns
+                if len(text_columns) > 0:
+                    closest_name = gdf_projected.loc[min_distance_idx, text_columns[0]]
+                else:
+                    closest_name = f"Station_{min_distance_idx}"
+            
+            # Clean the name
+            if closest_name and isinstance(closest_name, str):
+                closest_name = closest_name.strip()
+            
+            return min_distance, closest_name
+        
+        except Exception as e:
+            # Log the error for debugging but don't crash
+            print(f"     Warning: Could not calculate distance with info for row {getattr(row, 'name', 'unknown')}: {e}")
+            return np.nan, None
 
     def _calculate_accessibility_score(self, distances: pd.Series) -> pd.Series:
         """
