@@ -87,7 +87,6 @@ class FeatureExtractor:
         df['numero_caracteristicas'] = self._count_features(df['caracteristicas'])
         # df['numero_caracteristicas'] = df['caracteristicas'].apply(self._count_features)
         
-        print("✅ Original boolean features extracted")
         return df
 
     # ========== ORIGINAL EXTRACT_FEATURES FUNCTIONS (INTEGRATED) ==========
@@ -290,8 +289,6 @@ class FeatureExtractor:
     def _extract_location_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Extract location-related features."""
 
-        # Sector category based on neighborhood
-        df['categoria_sector'] = df['sector'].apply(self._categorize_sector)
 
         # Estrato categories
         df['categoria_estrato'] = pd.cut(
@@ -337,7 +334,6 @@ class FeatureExtractor:
 
         # Description length
         if 'descripcion' in df.columns:
-            df['longitud_descripcion'] = df['descripcion'].fillna('').str.len()
             # Has description
             df['tiene_descripcion'] = df['descripcion'].notna() & (df['descripcion'].str.len() > 10)
             
@@ -351,7 +347,6 @@ class FeatureExtractor:
                 lambda x: self._contains_keywords(x, self.security_keywords)
             )
         else:
-            df['longitud_descripcion'] = 0
             df['tiene_descripcion'] = False
             df['indica_lujo'] = False
             df['indica_seguridad'] = False
@@ -485,22 +480,6 @@ class FeatureExtractor:
         text_clean = unidecode(str(text).lower())
         return any(keyword in text_clean for keyword in keywords)
 
-    def _categorize_sector(self, sector: str) -> str:
-        """Categorize sector based on known classifications."""
-        # Fix: Check for None first
-        if sector is None:
-            return 'unknown'
-        
-        if not isinstance(sector, list) and pd.isna(sector):
-            return 'unknown'
-
-        sector_clean = unidecode(str(sector).lower())
-
-        for category, sectors in self.sector_categories.items():
-            if any(s in sector_clean for s in sectors):
-                return category
-
-        return 'other'
 
     def _simplify_property_type(self, tipo: str) -> str:
         """Simplify property type to main categories."""
@@ -525,7 +504,7 @@ class FeatureExtractor:
             return 'otro'
 
     def _calculate_value_score(self, df: pd.DataFrame) -> pd.Series:
-        """Calculate a value score based on price and location."""
+        """Calculate a value score based on price, location, and amenities."""
         score = pd.Series(0.0, index=df.index)
 
         # Price component (inverse - lower price per m2 is better value)
@@ -536,15 +515,26 @@ class FeatureExtractor:
             except Exception as e:
                 print(f"Warning: Could not calculate price score: {e}")
 
-        # Location component
-        location_scores = {'premium': 1.0, 'high': 0.8, 'medium': 0.6, 'popular': 0.4, 'other': 0.3}
-        if 'categoria_sector' in df.columns:
-            score += df['categoria_sector'].map(location_scores).fillna(0.3) * 0.3
-
         # Estrato component
         if 'estrato' in df.columns:
             estrato_score = df['estrato'].fillna(2) / 6.0
             score += estrato_score * 0.3
+
+        # Area efficiency component
+        if 'eficiencia_espacial' in df.columns:
+            try:
+                area_score = df['eficiencia_espacial'].rank(pct=True, na_option='bottom')
+                score += area_score.fillna(0) * 0.2
+            except Exception as e:
+                print(f"Warning: Could not calculate area efficiency score: {e}")
+
+        # Amenities bonus (more amenities = better value)
+        if 'numero_caracteristicas' in df.columns:
+            try:
+                amenity_score = df['numero_caracteristicas'].fillna(0) / df['numero_caracteristicas'].max() if df['numero_caracteristicas'].max() > 0 else 0
+                score += amenity_score * 0.1
+            except Exception as e:
+                print(f"Warning: Could not calculate amenity score: {e}")
 
         return score.round(3)
 
@@ -568,9 +558,6 @@ class FeatureExtractor:
         if 'estrato' in df.columns:
             score += (df['estrato'].fillna(0) >= 5).astype(int) * 0.3
 
-        # Premium sector
-        if 'categoria_sector' in df.columns:
-            score += (df['categoria_sector'] == 'premium').astype(int) * 0.3
 
         # High price per m2 - FIX: Check if column has valid data first
         if 'precio_por_m2' in df.columns and df['precio_por_m2'].notna().any():
