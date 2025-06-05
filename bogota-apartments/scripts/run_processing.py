@@ -95,40 +95,6 @@ def process_images(df):
     
     return df
 
-def advanced_feature_extraction(df):
-    """Use the unified FeatureExtractor for comprehensive feature engineering."""
-    try:
-        from processing.feature_extractor import FeatureExtractor
-        
-        print("Using advanced FeatureExtractor...")
-        
-        # Clean numeric columns first - THIS IS CRUCIAL
-        print("Cleaning numeric columns...")
-        df = clean_numeric_columns(df)
-        
-        extractor = FeatureExtractor()
-        
-        # This includes BOTH original boolean features AND advanced features
-        enhanced_df = extractor.extract_features(df)
-        
-        print(f"Feature extraction completed")
-        print(f"   Original columns: {len(df.columns)}")
-        print(f"   Enhanced columns: {len(enhanced_df.columns)}")
-        print(f"   New features added: {len(enhanced_df.columns) - len(df.columns)}")
-        
-        return enhanced_df
-        
-    except ImportError as e:
-        print(f"❌ FeatureExtractor not available: {e}")
-        print("Continuing with basic processing...")
-        return df
-    except Exception as e:
-        print(f"❌ Error during feature extraction: {e}")
-        import traceback
-        traceback.print_exc()  # This will show the full error trace
-        print("Continuing with basic processing...")
-        return df
-
 def clean_numeric_columns(df):
     """Clean numeric columns that might contain lists or strings."""
     numeric_columns = ['precio_venta', 'precio_arriendo', 'area', 'habitaciones', 'banos', 
@@ -172,13 +138,229 @@ def clean_numeric_columns(df):
     
     return df
 
+def clean_text_columns(df):
+    """Clean text columns that might contain lists or mixed types."""
+    text_columns = ['sector', 'localidad', 'barrio', 'descripcion', 'tipo_propiedad']
+    
+    for col in text_columns:
+        if col in df.columns:
+            print(f"  Cleaning {col} column...")
+            
+            def clean_text_value(value):
+                # Handle None/NaN
+                if value is None or pd.isna(value):
+                    return None
+                
+                # Handle lists - take first non-empty string
+                if isinstance(value, list):
+                    if len(value) == 0:
+                        return None
+                    for item in value:
+                        if item is not None and str(item).strip():
+                            return str(item).strip()
+                    return None
+                
+                # Handle strings
+                if isinstance(value, str):
+                    return value.strip() if value.strip() else None
+                
+                # Convert other types to string
+                return str(value).strip() if str(value).strip() else None
+            
+            original_type = df[col].dtype
+            df[col] = df[col].apply(clean_text_value)
+            print(f"    {col}: {original_type} -> {df[col].dtype}")
+            non_null_count = df[col].notna().sum()
+            print(f"    Non-null values: {non_null_count}/{len(df)}")
+    
+    return df
+
+def create_enrichment_geodata_files(external_dir):
+    """
+    Create/prepare geodata files for the enricher from external data.
+    This function maps your external data structure to what GeoDataEnricher expects.
+    """
+    try:
+        import shutil
+        
+        print("   📂 Preparing geographic data for enrichment...")
+        
+        # Create geo directory if it doesn't exist
+        geo_dir = external_dir.parent / 'geo'
+        geo_dir.mkdir(exist_ok=True)
+        
+        # File mappings: external_path -> geo_path
+        file_mappings = {
+            # Localidades: copy from barrios (has localidad info) or use direct shapefile
+            external_dir / 'localidades_bogota' / 'loca.shp': geo_dir / 'localidades.shp',
+            
+            # Barrios: direct copy
+            external_dir / 'barrios_bogota' / 'barrios.geojson': geo_dir / 'barrios.geojson',
+            
+            # TransMilenio: copy from estaciones_troncales_tm
+            external_dir / 'estaciones_troncales_tm' / 'estaciones-de-transmilenio.geojson': geo_dir / 'transmilenio.geojson',
+        }
+        
+        # Copy files if they exist
+        files_copied = 0
+        for source, dest in file_mappings.items():
+            if source.exists():
+                try:
+                    if source.suffix == '.shp':
+                        # For shapefiles, copy all associated files
+                        base_name = source.stem
+                        source_dir = source.parent
+                        dest_dir = dest.parent
+                        
+                        shapefile_extensions = ['.shp', '.shx', '.dbf', '.prj', '.cpg', '.sbn', '.sbx', '.shp.xml']
+                        for ext in shapefile_extensions:
+                            src_file = source_dir / f"{base_name}{ext}"
+                            if src_file.exists():
+                                dest_file = dest_dir / f"{dest.stem}{ext}"
+                                shutil.copy2(src_file, dest_file)
+                    else:
+                        # For single files like GeoJSON
+                        shutil.copy2(source, dest)
+                    
+                    print(f"      ✅ Copied {source.name} -> {dest.name}")
+                    files_copied += 1
+                except Exception as e:
+                    print(f"      ⚠️  Could not copy {source.name}: {e}")
+            else:
+                print(f"      ⚠️  Source file not found: {source}")
+        
+        # Create POI file from available data (UPDATED TO USE NEW MODULE)
+        poi_file = geo_dir / 'poi.geojson'
+        if not poi_file.exists():
+            print(f"      📍 Creating POI file from CSV data...")
+            try:
+                from data_creation.create_poi import create_poi_file
+                poi_created = create_poi_file(external_dir, poi_file)
+                if poi_created:
+                    files_copied += 1
+            except ImportError:
+                print(f"         ⚠️  POI creator module not available")
+            except Exception as e:
+                print(f"         ❌ Error creating POI file: {e}")
+        else:
+            print(f"      📍 POI file already exists: {poi_file}")
+            files_copied += 1
+        
+        print(f"      📊 Geographic files prepared: {files_copied} files ready")
+        return geo_dir if files_copied > 0 else None
+        
+    except Exception as e:
+        print(f"      ❌ Error preparing geodata: {e}")
+        return None
+
+def property_feature_extraction(df):
+    """Extract property-level features using FeatureExtractor."""
+    try:
+        from processing.feature_extractor import FeatureExtractor
+        
+        print("🏠 Extracting property features...")
+        
+        # Clean numeric columns first
+        df = clean_numeric_columns(df)
+        
+        # Clean text columns (NEW)
+        df = clean_text_columns(df)
+        
+        extractor = FeatureExtractor()
+        
+        # Extract property-level features (amenities, ratios, property-specific scores)
+        enhanced_df = extractor.extract_features(df)
+        
+        print(f"Property feature extraction completed")
+        print(f"   Original columns: {len(df.columns)}")
+        print(f"   Enhanced columns: {len(enhanced_df.columns)}")
+        print(f"   New features added: {len(enhanced_df.columns) - len(df.columns)}")
+        
+        return enhanced_df
+        
+    except ImportError as e:
+        print(f"   ⚠️  FeatureExtractor not available: {e}")
+        print("   Continuing with basic processing...")
+        return df
+    except Exception as e:
+        print(f"   ❌ Error during feature extraction: {e}")
+        import traceback
+        traceback.print_exc()
+        print("   Continuing with basic processing...")
+        return df
+
+def geographic_correction_and_enrichment(df):
+    """Two-stage geographic processing: correction then enrichment."""
+    try:
+        print("🗺️  Geographic processing...")
+        
+        # Check if we have coordinate data
+        has_coords = 'latitud' in df.columns and 'longitud' in df.columns
+        if not has_coords:
+            print("   ⚠️  No coordinate columns found. Skipping geographic processing.")
+            return df
+        
+        # Check for external data directory
+        external_dir = project_root / 'data' / 'external'
+        if not external_dir.exists():
+            print("   ⚠️  External data directory not found. Skipping geographic processing.")
+            print("   To enable: Create data/external/ and add Bogotá datasets")
+            return df
+        
+        # Stage 1: Geographic Correction (Data validation & business rules)
+        print("🔧 Stage 1: Geographic correction and validation...")
+        try:
+            from processing.geo_data_corrector import correct_apartment_locations
+            
+            corrected_df = correct_apartment_locations(df, external_dir)
+                
+        except ImportError:
+            print("      ⚠️  GeoDataCorrector not available (missing geopandas/shapely)")
+            print("      To enable: pip install geopandas shapely")
+            corrected_df = df
+        except Exception as e:
+            print(f"      ❌ Error during geographic correction: {e}")
+            print("      Continuing without correction...")
+            corrected_df = df
+        
+        # Stage 2: Advanced Geographic Enrichment (Market analysis, POI, accessibility)
+        print("🚀 Stage 2: Advanced geographic enrichment...")
+        try:
+            from processing.geo_data_enricher import enrich_apartment_locations
+            
+            # Prepare geodata for enricher (creates/copies files to data/geo/)
+            geo_data_dir = create_enrichment_geodata_files(external_dir)
+            
+            if geo_data_dir:
+                enriched_df = enrich_apartment_locations(corrected_df, str(geo_data_dir))
+            else:
+                print("      ⚠️  Could not prepare geodata. Skipping enrichment.")
+                enriched_df = corrected_df
+                
+        except ImportError:
+            print("      ⚠️  GeoDataEnricher not available (missing geopandas)")
+            enriched_df = corrected_df
+        except Exception as e:
+            print(f"      ❌ Error during geographic enrichment: {e}")
+            print("      Continuing without enrichment...")
+            enriched_df = corrected_df
+        
+        print("   ✅ Geographic processing completed")
+        return enriched_df
+        
+    except Exception as e:
+        print(f"   ❌ Error during geographic processing: {e}")
+        import traceback
+        traceback.print_exc()
+        return df
+
 def run_data_processing():
-    """Enhanced processing with comprehensive feature extraction."""
+    """Enhanced three-stage processing: features → correction → enrichment."""
     
     # Step 1: Load scraped data from JSONL
-    print("=" * 60)
-    print("🏠 BOGOTÁ APARTMENTS DATA PROCESSING")
-    print("=" * 60)
+    print("=" * 70)
+    print("🏠 BOGOTÁ APARTMENTS DATA PROCESSING (ENHANCED)")
+    print("=" * 70)
     print("Step 1: Loading scraped data from JSONL files...")
     combined_data = load_scraped_data()
     
@@ -251,55 +433,130 @@ def run_data_processing():
     missing_removed = before_cleaning - len(combined_data)
     print(f"Removed {missing_removed} rows with missing essential data")
     
-    # Step 6: Clean numeric columns
-    print("\nStep 5: Cleaning numeric columns...")
-    combined_data = clean_numeric_columns(combined_data)
+    # Step 6: Property feature extraction (NEW ARCHITECTURE)
+    print("\nStep 5: Property feature extraction...")
+    enhanced_data = property_feature_extraction(combined_data)
     
-    # Step 7: ADVANCED feature extraction (includes original + new features)
-    print("\nStep 6: Advanced feature extraction...")
-    print("This may take a moment...")
-    enhanced_data = advanced_feature_extraction(combined_data)
+    # Step 7: Geographic correction and enrichment (NEW ARCHITECTURE)
+    print("\nStep 6: Geographic processing...")
+    enhanced_data = geographic_correction_and_enrichment(enhanced_data)
     
     # Step 8: Save final processed data
-    print("\nStep 7: Saving enhanced processed data...")
-    apartments_file = interim_dir / 'apartments_enhanced.csv'
-    save_to_csv(enhanced_data, apartments_file)
+    print("\nStep 7: Saving final processed data...")
     
-    # Also save a simple version without advanced features for compatibility
+    # Save enhanced version with all features
+    enhanced_file = interim_dir / 'apartments_enhanced.csv'
+    save_to_csv(enhanced_data, enhanced_file)
+    
+    # Save simple version without advanced features for compatibility
     simple_file = interim_dir / 'apartments_simple.csv'
     save_to_csv(combined_data, simple_file)
     
-    print("\n" + "=" * 60)
+    # Save feature-only version (no geographic processing)
+    if len(enhanced_data.columns) > len(combined_data.columns):
+        # Check if we have property features but not geographic features
+        property_features = [col for col in enhanced_data.columns if col not in combined_data.columns]
+        
+        # Identify likely geographic features (added in Step 6)
+        geographic_features = [col for col in property_features if any(keyword in col.lower() for keyword in [
+            'zona_', 'distancia_', 'score_', 'percentil_', 'ratio_promedio', 'facilidad_', 'coords_modified'
+        ])]
+        
+        if geographic_features:
+            # Create version with only property features
+            property_only_cols = [col for col in enhanced_data.columns if col not in geographic_features]
+            property_only_data = enhanced_data[property_only_cols]
+            
+            property_file = interim_dir / 'apartments_with_features.csv'
+            save_to_csv(property_only_data, property_file)
+            
+            print(f"📁 Property features only: {property_file}")
+    
+    print("\n" + "=" * 70)
     print("🎉 ENHANCED PROCESSING COMPLETED!")
-    print("=" * 60)
+    print("=" * 70)
     print(f"📁 Raw data: {raw_csv_file}")
     print(f"📁 Images: {processed_dir / 'images.csv'}")
     print(f"📁 Simple apartments: {simple_file}")
-    print(f"📁 Enhanced apartments: {apartments_file}")
+    print(f"📁 Enhanced apartments (full): {enhanced_file}")
     print(f"📊 Final record count: {len(enhanced_data)}")
-    print("=" * 60)
+    print("=" * 70)
     
-    # Show sample of extracted features
+    # Show comprehensive feature summary
     if len(enhanced_data.columns) > len(combined_data.columns):
         new_features = [col for col in enhanced_data.columns if col not in combined_data.columns]
-        print("\n🔍 Sample of new features extracted:")
         
-        feature_examples = [
-            'jacuzzi', 'piscina', 'gimnasio', 'precio_por_m2', 'categoria_precio',
-            'score_valor', 'score_lujo', 'tipo_simplificado'
-        ]
+        # Categorize features
+        property_features = []
+        geographic_features = []
+        market_features = []
         
-        available_examples = [f for f in feature_examples if f in new_features]
+        for feature in new_features:
+            if any(keyword in feature.lower() for keyword in [
+                'jacuzzi', 'piscina', 'gimnasio', 'ascensor', 'terraza', 'amoblado', 'vigilancia',
+                'chimenea', 'mascotas', 'salon_comunal', 'conjunto_cerrado', 'closets', 'piso',
+                'categoria_', 'tipo_', 'tiene_', 'numero_', 'indica_', 'score_lujo', 'score_familiar',
+                'score_completitud', 'precio_por_m2', 'area_por_', 'eficiencia_', 'ratio_habitaciones'
+            ]):
+                property_features.append(feature)
+            elif any(keyword in feature.lower() for keyword in [
+                'distancia_',  'coords_modified'
+            ]):
+                geographic_features.append(feature)
+            elif any(keyword in feature.lower() for keyword in [
+                'percentil_', 'ratio_promedio', 'diferencia_promedio', 'precio_promedio',
+                'score_deseabilidad', 'score_inversion', 'score_conveniencia', 'score_movilidad',
+                'facilidad_', 'categoria_precio_mercado', 'precio_m2_categoria'
+            ]):
+                market_features.append(feature)
+            else:
+                property_features.append(feature)  # Default to property features
         
-        for i, feature in enumerate(available_examples[:8]):  # Show first 8
-            if len(enhanced_data) > 0:
-                sample_value = enhanced_data[feature].iloc[0]
-                print(f"   • {feature}: {sample_value}")
+        print("\n🔍 FEATURE EXTRACTION SUMMARY:")
+        print(f"   🏠 Property features: {len(property_features)}")
+        if property_features[:5]:  # Show first 5
+            for feature in property_features[:5]:
+                if len(enhanced_data) > 0:
+                    sample_value = enhanced_data[feature].iloc[0]
+                    print(f"      • {feature}: {sample_value}")
+            if len(property_features) > 5:
+                print(f"      ... and {len(property_features) - 5} more")
         
-        if len(new_features) > 8:
-            print(f"   ... and {len(new_features) - 8} more features")
+        if geographic_features:
+            print(f"   🗺️  Geographic features: {len(geographic_features)}")
+            for feature in geographic_features[:3]:  # Show first 3
+                if len(enhanced_data) > 0:
+                    sample_value = enhanced_data[feature].iloc[0]
+                    print(f"      • {feature}: {sample_value}")
+            if len(geographic_features) > 3:
+                print(f"      ... and {len(geographic_features) - 3} more")
         
-        print(f"\n📈 Total features extracted: {len(new_features)}")
+        if market_features:
+            print(f"   📊 Market analysis features: {len(market_features)}")
+            for feature in market_features[:3]:  # Show first 3
+                if len(enhanced_data) > 0:
+                    sample_value = enhanced_data[feature].iloc[0]
+                    print(f"      • {feature}: {sample_value}")
+            if len(market_features) > 3:
+                print(f"      ... and {len(market_features) - 3} more")
+        
+        print(f"\n📈 TOTAL FEATURES EXTRACTED: {len(new_features)}")
+        
+        # Show data quality summary
+        print(f"\n📋 DATA QUALITY SUMMARY:")
+        print(f"   Records processed: {len(combined_data)} → {len(enhanced_data)}")
+        
+        # Count completeness
+        essential_cols = ['precio_venta', 'precio_arriendo', 'area', 'habitaciones', 'banos']
+        available_essential = [col for col in essential_cols if col in enhanced_data.columns]
+        if available_essential:
+            completeness = enhanced_data[available_essential].notna().any(axis=1).sum()
+            print(f"   Records with essential data: {completeness}/{len(enhanced_data)} ({completeness/len(enhanced_data)*100:.1f}%)")
+        
+        # Count geographic data
+        if 'latitud' in enhanced_data.columns and 'longitud' in enhanced_data.columns:
+            has_coords = (enhanced_data['latitud'].notna() & enhanced_data['longitud'].notna()).sum()
+            print(f"   Records with coordinates: {has_coords}/{len(enhanced_data)} ({has_coords/len(enhanced_data)*100:.1f}%)")
 
 if __name__ == "__main__":
     run_data_processing()
